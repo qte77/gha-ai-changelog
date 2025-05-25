@@ -1,0 +1,21 @@
+{
+  "name": "Debian Bullseye Py3.13 Docker",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest"
+    }
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": [
+        ".github/workflows",
+        "changelog.md"
+      ]
+    }
+  },
+  "containerEnv": {
+    "ACT_CONFIG": ".actrc"
+  },
+  "postCreateCommand": "make setup"
+}

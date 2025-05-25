@@ -1,0 +1,179 @@
+# Breakdown: PR trigger,fetch commits, summarize commits (or their messages)
+# using AI, update CHANGELOG.md, commit and push
+
+name: "Changelog Generator with GitHub GPT-4-1 Model"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull Request Number'
+        required: true
+        type: number
+      model_choice:
+        description: 'Choose the model to use'
+        required: false
+        type: choice
+        default: 'openai/gpt-4.1'
+        options:
+          - 'openai/gpt-4.1'
+          - 'openai/gpt-4.1-mini'
+          - 'openai/gpt-4.1-nano'
+          - 'microsoft/Phi-4'
+          - 'microsoft/Phi-4-mini-instruct'
+      file_to_be_used:
+        description: 'The file to be updated with the changelog summary'
+        required: true
+        type: string
+        default: 'CHANGELOG.md'
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: read
+      models: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine PR Number
+        id: pr_number
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PR_NUMBER=${{ github.event.inputs.pr_number }}
+          else
+            PR_NUMBER=${{ github.event.pull_request.number }}
+          fi
+          echo "PR_NUMBER=${PR_NUMBER}" >> $GITHUB_ENV
+
+      - name: Fetch PR Commits
+        id: get_commits
+        run: |
+          API_URL="https://api.github.com/repos/${{ github.repository }}/pulls/"
+          API_URL="${API_URL}${{ env.PR_NUMBER }}/commits"
+          PR_COMMITS=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "$API_URL")
+  
+          if [ -z "$PR_COMMITS" ]; then
+            msg="Failed to fetch PR commits."
+            echo "$msg" >&2
+            exit 1
+          fi
+
+          commit_messages=$(echo "$PR_COMMITS" | jq -r '.[].commit.message' | paste -s -d ", ")
+          echo "COMMIT_MESSAGES=$commit_messages" >> $GITHUB_OUTPUT
+
+      - name: Call AI model curl
+        id: generate_summary
+        env:
+          API_URL: "https://models.github.ai/inference/chat/completions"
+          AUTH_HEADER: "Authorization: Bearer ${{ secrets.GHA_MODELS_PAT }}"
+          COMMIT_MESSAGES: ${{ steps.get_commits.outputs.COMMIT_MESSAGES }}
+          MODEL: ${{ github.event.inputs.model_choice }}
+        run: |
+          PAYLOAD=$(cat <<EOF
+          {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a helpful assistant that summarizes git commit messages into a changelog format. Consider categorizing the changes under 'Added', 'Changed', 'Fixed', and 'Breaking Changes'. Ensure that the summary is concise and clear, suitable for a changelog entry. Use https://keepachangelog.com/en/1.0.0/, https://semver.org/ and Markdown lint like https://github.com/DavidAnson/markdownlint-cli2."
+              },
+              {
+                "role": "user",
+                "content": "Summarize the following commits into a changelog but only output the categorizations and changes:\n$COMMIT_MESSAGES"
+              }
+            ],
+            "model": "$MODEL",
+            "max_tokens": 500,
+            "temperature": 0.7,
+            "top_p": 1,
+            "frequency_penalty": 0,
+            "presence_penalty": 0
+          }
+          EOF
+          )
+
+          MAX_RETRIES=3
+          RETRY_DELAY=5
+
+          for ((i=1; i<=MAX_RETRIES; i++)); do
+            echo "Attempt $i of $MAX_RETRIES ..."
+            RESPONSE=$(
+              curl -s -w "\n%{http_code}" -X POST "$API_URL" \
+              -H "Content-Type: application/json" \
+              -H "$AUTH_HEADER" \
+              -d "$PAYLOAD"
+            )
+
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            STATUS=$(echo "$RESPONSE" | tail -n1)
+
+            if [[ "$STATUS" == "200" ]]; then
+              echo "✅ Success"
+              SUMMARY=$(echo "$BODY" | jq -r '.choices[0].message.content')
+              echo "SUMMARY<<EOF" >> $GITHUB_OUTPUT
+              echo "$SUMMARY" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+              break
+            else
+              echo "❌ Failed with status $STATUS"
+              if [[ $i -lt $MAX_RETRIES ]]; then
+                echo "🔁 Retrying in $RETRY_DELAY seconds ..."
+                sleep $RETRY_DELAY
+              else
+                msg="💥 All retries failed."
+                echo "$msg" >&2
+                exit 2
+              fi
+            fi
+          done
+
+      - name: Update file_to_be_used with AI summary
+        env:
+          OUT_FILE: ${{ github.event.inputs.file_to_be_used }}
+          SUMMARY: ${{ steps.generate_summary.outputs.summary }}
+        run: |
+          set -xe
+          placeholder="<!-- INSERT_CHANGELOG_SUMMARY_HERE -->"
+          if [ -z "$SUMMARY" ]; then
+            msg="No summary to insert, skipping."
+            echo "$msg" >&2
+            exit 3
+          fi
+          echo "$SUMMARY" > summary.tmp
+          # Replace placeholder with contents of temp file
+          awk -v placeholder="$placeholder" '
+            BEGIN {
+              while ((getline line < "summary.tmp") > 0) {
+                summary_lines[++n] = line
+              }
+              close("summary.tmp")
+            }
+            {
+              if ($0 ~ placeholder) {
+                for (i = 1; i <= n; i++) print summary_lines[i]
+              } else {
+                print
+              }
+            }
+          ' "$OUT_FILE" > "${OUT_FILE}.new" && mv "${OUT_FILE}.new" "$OUT_FILE"
+          rm -f summary.tmp
+
+
+      - name: Commit and Push Changelog
+        env:
+          PR_COMMIT_MSG: "Add changelog summary for PR #{{ env.PR_NUMBER }}"
+          OUT_FILE: ${{ github.event.inputs.file_to_be_used }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add "$OUT_FILE"
+          git commit -m "$PR_COMMIT_MSG"
+          git push
