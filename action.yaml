@@ -1,0 +1,225 @@
+# https://docs.github.com/en/actions/sharing-automations/creating-actions/creating-a-composite-action
+name: "AI Changelog Generator"
+description: "Summarize PR commits into changelog entries using GitHub Models AI API."
+author: "qte77"
+branding:
+  icon: "file-text"
+  color: "orange"
+inputs:
+  PR_NUMBER:
+    description: "Pull request number to generate changelog for."
+    required: true
+  MODEL:
+    description: "GitHub Models AI model to use."
+    default: "openai/gpt-4.1"
+    required: true
+  OUT_FILE:
+    description: "The file to update with the changelog summary."
+    default: "CHANGELOG.md"
+    required: true
+  GH_TOKEN:
+    description: "GitHub token for fetching PR commits."
+    default: ${{ github.token }}
+    required: true
+  AI_TOKEN:
+    description: "Token for GitHub Models AI API."
+    default: ${{ github.token }}
+    required: true
+  COMMITTER_NAME:
+    description: "Name of the committer for the changelog commit."
+    default: "AIChangelog-GHA"
+    required: true
+  COMMITTER_EMAIL:
+    description: "Email of the committer for the changelog commit."
+    default: "ai-changelog@gha"
+    required: true
+  PLACEHOLDER:
+    description: "Placeholder comment in OUT_FILE to insert summary after."
+    default: "<!-- INSERT_CHANGELOG_SUMMARY_HERE -->"
+    required: true
+  CREATE_PR:
+    description: "Whether to create a pull request with the changes."
+    default: 'false'
+runs:
+  using: 'composite'
+  steps:
+
+    - name: Set env
+      shell: bash
+      run: |
+        echo "BRANCH_NEW=ai-changelog-${{ github.run_number }}-${{ github.ref_name }}" >> $GITHUB_ENV
+        echo "SCRIPT_PATH=${{ github.action_path }}/.github/scripts" >> $GITHUB_ENV
+        echo "SKIP_PR_HINT=[ai changelog gha]" >> $GITHUB_ENV
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Set git config and create branch
+      shell: bash
+      run: |
+        git config --local user.name "${{ inputs.COMMITTER_NAME }}"
+        git config --local user.email "${{ inputs.COMMITTER_EMAIL }}"
+        git checkout -b "${{ env.BRANCH_NEW }}"
+
+    - name: Fetch PR commits
+      id: get_commits
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.GH_TOKEN }}
+      run: |
+        API_URL="https://api.github.com/repos/${{ github.repository }}/pulls/${{ inputs.PR_NUMBER }}/commits"
+        PR_COMMITS=$(curl -s \
+          -H "Authorization: token ${GH_TOKEN}" \
+          -H "Accept: application/vnd.github+json" \
+          "$API_URL")
+
+        # B5: Validate response contains commit data
+        if ! echo "$PR_COMMITS" | jq -e '.[0].sha' > /dev/null 2>&1; then
+          echo "::error::Failed to fetch PR commits or PR has no commits."
+          exit 1
+        fi
+
+        # B6: Use heredoc to safely handle multi-line commit messages
+        COMMIT_MESSAGES=$(echo "$PR_COMMITS" | jq -r '.[].commit.message')
+        echo "COMMIT_MESSAGES<<EOFCOMMITS" >> $GITHUB_OUTPUT
+        echo "$COMMIT_MESSAGES" >> $GITHUB_OUTPUT
+        echo "EOFCOMMITS" >> $GITHUB_OUTPUT
+
+    - name: Call AI model
+      id: generate_summary
+      shell: bash
+      env:
+        AI_TOKEN: ${{ inputs.AI_TOKEN }}
+        COMMIT_MESSAGES: ${{ steps.get_commits.outputs.COMMIT_MESSAGES }}
+        MODEL: ${{ inputs.MODEL }}
+      run: |
+        API_URL="https://models.github.ai/inference/chat/completions"
+
+        SYSTEM_PROMPT="You are a helpful assistant that summarizes git commit messages into a changelog format. Consider categorizing the changes under 'Added', 'Changed', 'Fixed', and 'Breaking Changes'. Ensure that the summary is concise and clear, suitable for a changelog entry. Use https://keepachangelog.com/en/1.0.0/, https://semver.org/ and Markdown lint like https://github.com/DavidAnson/markdownlint-cli2."
+        USER_PROMPT="Summarize the following commits into a changelog but only output the categorizations and changes:"
+
+        # B7: Use jq for safe JSON construction
+        PAYLOAD=$(jq -n \
+          --arg model "$MODEL" \
+          --arg system "$SYSTEM_PROMPT" \
+          --arg user "$USER_PROMPT
+        $COMMIT_MESSAGES" \
+          '{
+            messages: [
+              { role: "system", content: $system },
+              { role: "user", content: $user }
+            ],
+            model: $model,
+            max_tokens: 500,
+            temperature: 0.7,
+            top_p: 1,
+            frequency_penalty: 0,
+            presence_penalty: 0
+          }')
+
+        MAX_RETRIES=3
+        RETRY_DELAY=5
+
+        for ((i=1; i<=MAX_RETRIES; i++)); do
+          echo "Attempt $i of $MAX_RETRIES ..."
+          RESPONSE=$(
+            curl -s -w "\n%{http_code}" -X POST "$API_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${AI_TOKEN}" \
+            -d "$PAYLOAD"
+          )
+
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          STATUS=$(echo "$RESPONSE" | tail -n1)
+
+          if [[ "$STATUS" == "200" ]]; then
+            echo "Success"
+            # B1: Use uppercase SUMMARY to match output reference
+            SUMMARY=$(echo "$BODY" | jq -r '.choices[0].message.content')
+            echo "SUMMARY<<EOFAI" >> $GITHUB_OUTPUT
+            echo "$SUMMARY" >> $GITHUB_OUTPUT
+            echo "EOFAI" >> $GITHUB_OUTPUT
+            break
+          else
+            echo "::warning::AI API returned status $STATUS"
+            if [[ $i -lt $MAX_RETRIES ]]; then
+              echo "Retrying in $RETRY_DELAY seconds ..."
+              sleep $RETRY_DELAY
+            else
+              echo "::error::All $MAX_RETRIES retries failed."
+              exit 2
+            fi
+          fi
+        done
+
+    - name: Update changelog file
+      shell: bash
+      env:
+        OUT_FILE: ${{ inputs.OUT_FILE }}
+        # B1: Reference uppercase SUMMARY
+        SUMMARY: ${{ steps.generate_summary.outputs.SUMMARY }}
+        PLACEHOLDER: ${{ inputs.PLACEHOLDER }}
+      run: |
+        set -e
+        if [ -z "$SUMMARY" ]; then
+          echo "::error::No summary generated, skipping."
+          exit 3
+        fi
+
+        # Insert summary AFTER the placeholder line (preserve placeholder for reruns)
+        awk -v placeholder="$PLACEHOLDER" -v summary="$SUMMARY" '
+          {
+            print
+            if (index($0, placeholder) > 0) {
+              print ""
+              print summary
+            }
+          }
+        ' "$OUT_FILE" > "${OUT_FILE}.new" && mv "${OUT_FILE}.new" "$OUT_FILE"
+
+    - name: Check if there are any changes
+      id: diff_check_changed
+      shell: bash
+      run: |
+        set +e
+        git add "${{ inputs.OUT_FILE }}"
+        git diff --cached --quiet && \
+          echo "No changes added. Nothing to do." || \
+          echo "changed=true" >> $GITHUB_OUTPUT
+
+    - name: Commit and push changes
+      if: ${{ steps.diff_check_changed.outputs.changed == 'true' }}
+      shell: bash
+      # B8: Push to named branch, not detached HEAD
+      run: |
+        git commit -m "Add changelog summary for PR #${{ inputs.PR_NUMBER }}"
+        git push --set-upstream origin "${{ env.BRANCH_NEW }}"
+
+    - name: Create PR '${{ env.BRANCH_NEW }}'
+      if: ${{ inputs.CREATE_PR == 'true' &&
+        steps.diff_check_changed.outputs.changed == 'true' }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.GH_TOKEN }}
+      run: |
+        pr_title="PR ${{ env.BRANCH_NEW }} ${{ env.SKIP_PR_HINT }}"
+        pr_body="PR automatically created from \`${{ github.ref_name }}\` to add"
+        pr_body="${pr_body} AI-generated changelog summary for PR #${{ inputs.PR_NUMBER }}."
+
+        gh pr create \
+          --base "${{ github.ref_name }}" \
+          --head "${{ env.BRANCH_NEW }}" \
+          --title "${pr_title}" \
+          --body "${pr_body}"
+
+    - name: Delete branch, PR and tag in case of failure or cancel
+      if: failure() || cancelled()
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.GH_TOKEN }}
+      run: |
+        src="${{ env.SCRIPT_PATH }}/delete_branch_pr_tag.sh"
+        chmod +x "$src"
+        $src "${{ github.repository }}" "${{ env.BRANCH_NEW }}"

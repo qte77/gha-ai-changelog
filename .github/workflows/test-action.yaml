@@ -1,0 +1,35 @@
+name: "Test AI Changelog Action"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull Request Number'
+        required: true
+        type: number
+      model_choice:
+        description: 'Choose the model to use'
+        required: false
+        type: choice
+        default: 'openai/gpt-4.1'
+        options:
+          - 'openai/gpt-4.1'
+          - 'openai/gpt-4.1-mini'
+          - 'openai/gpt-4.1-nano'
+          - 'microsoft/Phi-4'
+          - 'microsoft/Phi-4-mini-instruct'
+
+jobs:
+  test-action:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      models: read
+    steps:
+      - name: Run AI Changelog Action
+        uses: ./
+        with:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          MODEL: ${{ inputs.model_choice }}
+          AI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
