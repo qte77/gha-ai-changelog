@@ -16,6 +16,29 @@ Types of changes:
 
 ## [Unreleased]
 
+### Added
+
+- Composite action `action.yaml` with 9 inputs and branding for GitHub Marketplace
+- BSD-3-Clause license (`LICENSE.md`)
+- Cleanup script for failed runs (`.github/scripts/delete_branch_pr_tag.sh`)
+- Bumpversion config in `pyproject.toml`
+- Conventional commits template (`.gitmessage`)
+
+### Fixed
+
+- B1: `outputs.summary` case mismatch — use uppercase `SUMMARY`
+- B2: `{{ env.PR_NUMBER }}` missing `$` — use `${{ inputs.PR_NUMBER }}`
+- B3: `OUT_FILE` empty on PR trigger — inputs have defaults
+- B4: `MODEL` empty on PR trigger — inputs have defaults
+- B5: `PR_COMMITS` empty-check misses errors — validate with `jq -e '.[0].sha'`
+- B6: Multi-line commits corrupt output — use `EOFCOMMITS` heredoc delimiter
+- B7: Unescaped JSON payload — use `jq -n --arg` for safe construction
+- B8: `git push` detached HEAD — push to named `BRANCH_NEW`
+
+### Changed
+
+- Removed `languages: python` from CodeQL workflow (no Python source)
+
 <!-- INSERT_CHANGELOG_SUMMARY_HERE -->
 
 ---
