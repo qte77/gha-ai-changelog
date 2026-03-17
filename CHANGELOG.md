@@ -23,6 +23,10 @@ Types of changes:
 - Cleanup script for failed runs (`.github/scripts/delete_branch_pr_tag.sh`)
 - Bumpversion config in `pyproject.toml`
 - Conventional commits template (`.gitmessage`)
+- Self-test workflow `test-action.yaml` (replaces inline `generate-changelog-ai.yaml`)
+- Bumpversion workflow `bump-my-version.yaml`
+- Reusable job summary workflow `summarize-jobs-reusable.yaml`
+- README with usage, inputs table, and permissions
 
 ### Fixed
 
@@ -38,6 +42,8 @@ Types of changes:
 ### Changed
 
 - Removed `languages: python` from CodeQL workflow (no Python source)
+- Replaced inline workflow with `uses: ./` self-test pattern
+- Removed `pip` ecosystem from dependabot (no Python dependencies)
 
 <!-- INSERT_CHANGELOG_SUMMARY_HERE -->
 
