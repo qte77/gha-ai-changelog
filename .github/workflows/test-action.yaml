@@ -27,6 +27,9 @@ jobs:
       pull-requests: write
       models: read
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Run AI Changelog Action
         uses: ./
         with:
