@@ -16,6 +16,10 @@ Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [1.0.0] - 2026-03-17
+
 ### Added
 
 - Composite action `action.yaml` with 9 inputs and branding for GitHub Marketplace
