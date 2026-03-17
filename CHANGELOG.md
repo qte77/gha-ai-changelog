@@ -42,6 +42,7 @@ Types of changes:
 - B6: Multi-line commits corrupt output — use `EOFCOMMITS` heredoc delimiter
 - B7: Unescaped JSON payload — use `jq -n --arg` for safe construction
 - B8: `git push` detached HEAD — push to named `BRANCH_NEW`
+- B9: `test-action.yaml` missing checkout before `uses: ./` — action.yaml not found
 
 ### Changed
 
