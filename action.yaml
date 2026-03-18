@@ -1,5 +1,5 @@
 # https://docs.github.com/en/actions/sharing-automations/creating-actions/creating-a-composite-action
-name: "AI Changelog Generator"
+name: "AI Changelog Summary"
 description: "Summarize PR commits into changelog entries using GitHub Models AI API."
 author: "qte77"
 branding:
