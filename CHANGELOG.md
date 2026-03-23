@@ -16,6 +16,17 @@ Types of changes:
 
 ## [Unreleased]
 
+### Changed
+
+- `callowayproject/bump-my-version` `@0.29.0` → `@1.2.7`
+- `actions/checkout` `@v4` → `@v6` in `action.yaml`
+- Bump workflow creates GitHub Release and updates floating major tag
+- Cleanup script includes release deletion
+
+### Removed
+
+- Orphaned `summarize-jobs-reusable.yaml`
+
 ---
 
 ## [1.0.0] - 2026-03-17
