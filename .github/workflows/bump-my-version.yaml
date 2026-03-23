@@ -72,7 +72,9 @@ jobs:
               '{message: $msg, tree: $tree, parents: [$parent]}') \
             --jq '.sha')
 
-          gh api "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$COMMIT_SHA"
+          gh api "repos/$REPO/git/refs/heads/$BRANCH" -X PATCH -f sha="$COMMIT_SHA" -F force=true 2>/dev/null \
+            || gh api "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$COMMIT_SHA"
+
           gh api "repos/$REPO/git/refs" -f ref="refs/tags/v$VERSION" -f sha="$COMMIT_SHA"
 
           echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
