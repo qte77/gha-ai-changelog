@@ -16,6 +16,10 @@ Types of changes:
 
 ## [Unreleased]
 
+---
+
+## [1.1.0] - 2026-03-23
+
 ### Changed
 
 - `callowayproject/bump-my-version` `@0.29.0` → `@1.2.7`
