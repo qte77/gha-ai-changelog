@@ -52,7 +52,7 @@ runs:
         echo "SKIP_PR_HINT=[ai changelog gha]" >> $GITHUB_ENV
 
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 1
 

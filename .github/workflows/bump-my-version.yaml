@@ -1,5 +1,5 @@
 ---
-name: bump-my-version
+name: Bump and Release
 
 on:
   workflow_dispatch:
@@ -21,14 +21,7 @@ env:
 
 jobs:
   bump_my_version:
-    if: >
-        github.event_name == 'workflow_dispatch' ||
-        ( github.event.pull_request.merged == true &&
-        github.event.pull_request.closed_by != 'github-actions' )
     runs-on: ubuntu-latest
-    outputs:
-      branch_new: ${{ steps.create_branch.outputs.branch_new }}
-      summary_data: ${{ steps.set_summary.outputs.summary_data }}
     permissions:
       actions: read
       checks: write
@@ -37,7 +30,7 @@ jobs:
     steps:
 
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -51,7 +44,7 @@ jobs:
 
       - name: Bump version
         id: bump
-        uses: callowayproject/bump-my-version@0.29.0
+        uses: callowayproject/bump-my-version@1.2.7
         env:
           BUMPVERSION_TAG: "true"
         with:
@@ -68,14 +61,25 @@ jobs:
           pr_title="PR ${{ env.BRANCH_NEW }} ${{ env.SKIP_PR_HINT }}"
           pr_body="PR automatically created from \`${{ github.ref_name }}\` to bump from"
           pr_body="${pr_body} \`${tag_previous}\` to \`${tag_current}\` on \`${{ env.BRANCH_NEW }}\`."
-          pr_body="${pr_body} Tag \`${tag_current}\` will be created and has to be deleted manually"
-          pr_body="${pr_body} if PR gets closed without merge."
 
           gh pr create \
             --base "${{ github.ref_name }}" \
             --head "${{ env.BRANCH_NEW }}" \
             --title "${pr_title}" \
             --body "${pr_body}"
+
+      - name: Create release and update floating tag
+        if: steps.bump.outputs.bumped == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.bump.outputs.current-version }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" --repo "$REPO" --generate-notes
+          MAJOR="${TAG%%.*}"
+          SHA=$(gh api "repos/$REPO/git/refs/tags/$TAG" --jq '.object.sha')
+          gh api "repos/$REPO/git/refs/tags/$MAJOR" -X PATCH -f sha="$SHA" -F force=true 2>/dev/null \
+            || gh api "repos/$REPO/git/refs" -f ref="refs/tags/$MAJOR" -f sha="$SHA"
 
       - name: Delete branch, PR and tag in case of failure or cancel
         if: failure() || cancelled()
@@ -86,17 +90,4 @@ jobs:
           chmod +x "$src"
           $src "${{ github.repository }}" "${{ env.BRANCH_NEW }}" "${{ steps.bump.outputs.current-version }}"
 
-      - name: Set summary data
-        id: set_summary
-        if: ${{ always() }}
-        run: echo "summary_data=${GITHUB_STEP_SUMMARY}" >> $GITHUB_OUTPUT
-
-  generate_summary:
-    name: Generate Summary Report
-    if: ${{ always() }}
-    needs: bump_my_version
-    uses: ./.github/workflows/summarize-jobs-reusable.yaml
-    with:
-      branch_to_summarize: ${{ needs.bump_my_version.outputs.branch_new }}
-      summary_data: ${{ needs.bump_my_version.outputs.summary_data }}
 ...
