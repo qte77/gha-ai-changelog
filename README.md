@@ -18,7 +18,7 @@ For version history have a look at the [CHANGELOG](CHANGELOG.md).
   with:
     PR_NUMBER: ${{ github.event.pull_request.number }}
     AI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
+```text
 
 Add a placeholder comment in your changelog file where the AI summary should be inserted:
 
@@ -63,7 +63,7 @@ permissions:
   contents: write       # commit and push changelog
   pull-requests: write  # create PR (if CREATE_PR is 'true')
   models: read          # call GitHub Models AI API
-```
+```text
 
 ## License
 
