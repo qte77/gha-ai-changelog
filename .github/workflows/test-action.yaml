@@ -28,7 +28,7 @@ jobs:
       models: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run AI Changelog Action
         uses: ./
