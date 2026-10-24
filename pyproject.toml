@@ -1,7 +1,7 @@
 [project]
 version = "1.1.0"
 name = "gha-ai-changelog"
-description = "Summarize PR commits into changelog entries using GitHub Models AI API."
+description = "Summarize PR commits into changelog entries using an OpenAI-compatible or Anthropic LLM API."
 authors = [
     {name = "qte77", email = "qte@77.gh"}
 ]
