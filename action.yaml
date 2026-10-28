@@ -1,6 +1,6 @@
 # https://docs.github.com/en/actions/sharing-automations/creating-actions/creating-a-composite-action
 name: "AI Changelog Summary"
-description: "Summarize PR commits into changelog entries using GitHub Models AI API."
+description: "Summarize PR commits into changelog entries using an OpenAI-compatible or Anthropic LLM API."
 author: "qte77"
 branding:
   icon: "file-text"
@@ -9,10 +9,15 @@ inputs:
   PR_NUMBER:
     description: "Pull request number to generate changelog for."
     required: true
+  API_BASE:
+    description: "Base URL of an OpenAI-compatible API (e.g. https://api.openai.com/v1). Takes precedence over ANTHROPIC_API_KEY."
+    default: ""
+  ANTHROPIC_API_KEY:
+    description: "Anthropic API key. Used when API_BASE is empty."
+    default: ""
   MODEL:
-    description: "GitHub Models AI model to use."
-    default: "openai/gpt-4.1"
-    required: true
+    description: "Model ID. Required with API_BASE; defaults to claude-sonnet-5-5 with ANTHROPIC_API_KEY."
+    default: ""
   OUT_FILE:
     description: "The file to update with the changelog summary."
     default: "CHANGELOG.md"
@@ -22,9 +27,8 @@ inputs:
     default: ${{ github.token }}
     required: true
   AI_TOKEN:
-    description: "Token for GitHub Models AI API."
-    default: ${{ github.token }}
-    required: true
+    description: "Bearer token for the OpenAI-compatible API at API_BASE."
+    default: ""
   COMMITTER_NAME:
     description: "Name of the committer for the changelog commit."
     default: "AIChangelog-GHA"
@@ -92,32 +96,60 @@ runs:
       shell: bash
       env:
         AI_TOKEN: ${{ inputs.AI_TOKEN }}
+        API_BASE: ${{ inputs.API_BASE }}
+        ANTHROPIC_API_KEY: ${{ inputs.ANTHROPIC_API_KEY }}
         COMMIT_MESSAGES: ${{ steps.get_commits.outputs.COMMIT_MESSAGES }}
         MODEL: ${{ inputs.MODEL }}
       run: |
-        API_URL="https://models.github.ai/inference/chat/completions"
-
         SYSTEM_PROMPT="You are a helpful assistant that summarizes git commit messages into a changelog format. Consider categorizing the changes under 'Added', 'Changed', 'Fixed', and 'Breaking Changes'. Ensure that the summary is concise and clear, suitable for a changelog entry. Use https://keepachangelog.com/en/1.0.0/, https://semver.org/ and Markdown lint like https://github.com/DavidAnson/markdownlint-cli2."
         USER_PROMPT="Summarize the following commits into a changelog but only output the categorizations and changes:"
 
+        USER_CONTENT="$USER_PROMPT
+        $COMMIT_MESSAGES"
+
+        # Reason: GitHub Models was retired 2026-07-30, so the provider must be set
+        # explicitly. Dispatch order: OpenAI-compatible (API_BASE) -> Anthropic.
         # B7: Use jq for safe JSON construction
-        PAYLOAD=$(jq -n \
-          --arg model "$MODEL" \
-          --arg system "$SYSTEM_PROMPT" \
-          --arg user "$USER_PROMPT
-        $COMMIT_MESSAGES" \
-          '{
-            messages: [
-              { role: "system", content: $system },
-              { role: "user", content: $user }
-            ],
-            model: $model,
-            max_tokens: 500,
-            temperature: 0.7,
-            top_p: 1,
-            frequency_penalty: 0,
-            presence_penalty: 0
-          }')
+        if [[ -n "$API_BASE" ]]; then
+          if [[ -z "$MODEL" ]]; then
+            echo "::error::MODEL is required when API_BASE is set."
+            exit 2
+          fi
+          API_URL="${API_BASE%/}/chat/completions"
+          HEADERS=(-H "Authorization: Bearer ${AI_TOKEN}")
+          CONTENT_PATH='.choices[0].message.content'
+          PAYLOAD=$(jq -n \
+            --arg model "$MODEL" \
+            --arg system "$SYSTEM_PROMPT" \
+            --arg user "$USER_CONTENT" \
+            '{
+              messages: [
+                { role: "system", content: $system },
+                { role: "user", content: $user }
+              ],
+              model: $model,
+              max_tokens: 500,
+              temperature: 0.7
+            }')
+        elif [[ -n "$ANTHROPIC_API_KEY" ]]; then
+          API_URL="https://api.anthropic.com/v1/messages"
+          HEADERS=(-H "x-api-key: ${ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01")
+          CONTENT_PATH='.content[0].text'
+          PAYLOAD=$(jq -n \
+            --arg model "${MODEL:-claude-sonnet-5-5}" \
+            --arg system "$SYSTEM_PROMPT" \
+            --arg user "$USER_CONTENT" \
+            '{
+              model: $model,
+              max_tokens: 500,
+              system: $system,
+              messages: [{ role: "user", content: $user }]
+            }')
+        else
+          echo "::error::No LLM provider configured. GitHub Models was retired on 2026-07-30;" \
+            "set API_BASE + AI_TOKEN (OpenAI-compatible) or ANTHROPIC_API_KEY."
+          exit 2
+        fi
 
         MAX_RETRIES=3
         RETRY_DELAY=5
@@ -127,7 +159,7 @@ runs:
           RESPONSE=$(
             curl -s -w "\n%{http_code}" -X POST "$API_URL" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${AI_TOKEN}" \
+            "${HEADERS[@]}" \
             -d "$PAYLOAD"
           )
 
@@ -137,7 +169,7 @@ runs:
           if [[ "$STATUS" == "200" ]]; then
             echo "Success"
             # B1: Use uppercase SUMMARY to match output reference
-            SUMMARY=$(echo "$BODY" | jq -r '.choices[0].message.content')
+            SUMMARY=$(echo "$BODY" | jq -r "$CONTENT_PATH")
             echo "SUMMARY<<EOFAI" >> $GITHUB_OUTPUT
             echo "$SUMMARY" >> $GITHUB_OUTPUT
             echo "EOFAI" >> $GITHUB_OUTPUT
