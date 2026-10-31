@@ -16,6 +16,12 @@ Types of changes:
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** GitHub Models was retired on 2026-07-30, so the action now calls a configurable LLM provider: an OpenAI-compatible API via `API_BASE` + `AI_TOKEN`, or Anthropic via `ANTHROPIC_API_KEY` (default model `claude-sonnet-5-5`). It fails fast with a clear error if neither is set.
+- `MODEL` and `AI_TOKEN` are now optional and have no GitHub Models defaults
+- `test-action.yaml` takes free-text `api_base`/`model` inputs and reads the `AI_API_KEY`/`ANTHROPIC_API_KEY` secrets; `models: read` permission dropped
+
 ---
 
 ## [1.1.0] - 2026-03-23

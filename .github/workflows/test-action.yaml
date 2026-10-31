@@ -7,17 +7,16 @@ on:
         description: 'Pull Request Number'
         required: true
         type: number
-      model_choice:
-        description: 'Choose the model to use'
+      api_base:
+        description: 'OpenAI-compatible API base URL (empty = Anthropic via ANTHROPIC_API_KEY secret)'
         required: false
-        type: choice
-        default: 'openai/gpt-4.1'
-        options:
-          - 'openai/gpt-4.1'
-          - 'openai/gpt-4.1-mini'
-          - 'openai/gpt-4.1-nano'
-          - 'microsoft/Phi-4'
-          - 'microsoft/Phi-4-mini-instruct'
+        type: string
+        default: ''
+      model:
+        description: 'Model ID (required with api_base; empty = action default for Anthropic)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   test-action:
@@ -25,7 +24,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      models: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -34,5 +32,7 @@ jobs:
         uses: ./
         with:
           PR_NUMBER: ${{ inputs.pr_number }}
-          MODEL: ${{ inputs.model_choice }}
-          AI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_BASE: ${{ inputs.api_base }}
+          MODEL: ${{ inputs.model }}
+          AI_TOKEN: ${{ secrets.AI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
