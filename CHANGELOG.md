@@ -22,6 +22,10 @@ Types of changes:
 - `MODEL` and `AI_TOKEN` are now optional and have no GitHub Models defaults
 - `test-action.yaml` takes free-text `api_base`/`model` inputs and reads the `AI_API_KEY`/`ANTHROPIC_API_KEY` secrets; `models: read` permission dropped
 
+### Security
+
+- Pinned every remaining `uses:` ref in `.github/workflows/*` and `action.yaml` to its commit SHA (`actions/checkout@v7`, `docker/login-action@v4`, `callowayproject/bump-my-version@1.8.1`, `github/codeql-action/{init,autobuild,analyze}@v4`), required by the org's new SHA-pinning Actions policy; this also fixes the resulting `CodeQL` workflow `startup_failure`. No version changes.
+
 ---
 
 ## [1.1.0] - 2026-03-23
