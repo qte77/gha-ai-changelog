@@ -1,26 +1,67 @@
 ---
 name: Publish Release
 
-# Manual re-publish of an existing tag (for example after a failed publish job).
-# The tag is required: the reusable's "latest v* tag" lookup could pick the floating
-# major tag (v1) instead of a release tag.
+# Manual re-publish of an existing release tag, for example after the publish job in
+# tag-release.yaml failed. Like tag-release.yaml, it then moves the floating major tag
+# (v<major>) to the commit the given tag points at.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish, e.g. v1.2.0"
+        description: "Release tag to publish, e.g. v1.2.0 (not the floating v1)"
         required: true
         type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
 jobs:
+  validate:
+    # Only vX.Y.Z is accepted: with immutable releases on, a Release published on the
+    # floating tag would freeze it for good.
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Check the tag is a release tag
+        id: check
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   publish:
+    needs: validate
     uses: qte77/.github/.github/workflows/publish-release.yml@aeef158fdd62a865aecd03571eaecbe3aa8169e4  # v0.1.2
     permissions:
       contents: write
     with:
-      tag: ${{ inputs.tag }}
+      tag: ${{ needs.validate.outputs.tag }}
+
+  move-floating-major-tag:
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Move v<major> to the tag's commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+          MAJOR="${TAG%%.*}"
+          # The commit the (annotated) release tag points at, not the dispatch ref's head.
+          SHA=$(gh api "repos/$REPO/commits/$TAG" --jq '.sha')
+          gh api "repos/$REPO/git/refs/tags/$MAJOR" -X PATCH -f sha="$SHA" -F force=true 2>/dev/null \
+            || gh api "repos/$REPO/git/refs" -f ref="refs/tags/$MAJOR" -f sha="$SHA"
 ...

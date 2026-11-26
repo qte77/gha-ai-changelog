@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+# Serialize release runs so an older run's move job can never move v<major> backward.
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
 jobs:
   tag:
     uses: qte77/.github/.github/workflows/tag-release.yml@aeef158fdd62a865aecd03571eaecbe3aa8169e4  # v0.1.2
@@ -47,6 +52,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
           MAJOR="${TAG%%.*}"
           gh api "repos/$REPO/git/refs/tags/$MAJOR" -X PATCH -f sha="$SHA" -F force=true 2>/dev/null \
             || gh api "repos/$REPO/git/refs" -f ref="refs/tags/$MAJOR" -f sha="$SHA"
