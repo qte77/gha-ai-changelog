@@ -23,6 +23,11 @@ Types of changes:
 - **Breaking:** GitHub Models was retired on 2026-07-30, so the action now calls a configurable LLM provider: an OpenAI-compatible API via `API_BASE` + `AI_TOKEN`, or Anthropic via `ANTHROPIC_API_KEY` (default model `claude-sonnet-5-5`). It fails fast with a clear error if neither is set.
 - `MODEL` and `AI_TOKEN` are now optional and have no GitHub Models defaults
 - `test-action.yaml` takes free-text `api_base`/`model` inputs and reads the `AI_API_KEY`/`ANTHROPIC_API_KEY` secrets; `models: read` permission dropped
+- Release flow moved to the `qte77/.github` reusables, pinned to the v0.1.2 tag commit (`@aeef158f…  # v0.1.2`) (#42):
+  `bump-my-version.yaml` calls `bump-version` (signed bump commit, bump PR), the new `tag-release.yaml` tags `vX.Y.Z`,
+  publishes the Release and moves the floating major tag once the bump PR is merged to `main`, and the new
+  `publish-release.yaml` re-publishes a given tag on dispatch. Tag and Release are no longer created on the unmerged bump
+  branch, and a failed run no longer deletes tags.
 
 ### Security
 
